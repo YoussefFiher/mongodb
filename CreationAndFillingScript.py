@@ -2,14 +2,19 @@ import json
 import os
 from pymongo import MongoClient
 from collections import defaultdict
+from datetime import datetime
+
+
 
 client = MongoClient('mongodb://localhost:27017/')
-db = client['Straming_db']
+db = client['Streaming_db']
 movies_collection = db['movies']
 workers_collection = db['workers']
+watch_history_collection = db['watch_history']
+users_collection = db['users']
 
 # utilise ton propre path ou il se situe les données 
-data_dir = "C:/Users/LEGION/OneDrive/Bureau/BIG_DATA/projet_groupe/projet_2025/data/generated_data/small/mongodb"
+data_dir = "C:/Users/LEGION/OneDrive/Bureau/BIG_DATA/projet_groupe/projet_2025/data/generated_data/medium/mongodb"
 
 def load_json_files(filename):
     with open(os.path.join(data_dir, filename), 'r') as f:
@@ -56,7 +61,8 @@ for ma in movies_awards:
 
 ratings_per_movie = defaultdict(list)
 for r in ratings:
-    ratings_per_movie[r["movie_id"]].append(r["rating"])
+    if type (r["rating"]) in [int,float]:
+        ratings_per_movie[r["movie_id"]].append(r["rating"])
 
 def compute_avg_rating(ratings):
     if not ratings:
@@ -89,5 +95,52 @@ for movie_id, movie in movies.items():
     })
 
 
+
+# Chargement des données
+users_data = {u["id"]: u for u in load_json_files("users.json")}
+favorite_genres_data = load_json_files("favorite_genres.json")
+
+# Création d'une map des genres favoris par utilisateur
+user_fav_genres = defaultdict(list)
+for fg in favorite_genres_data:
+    genre = genres[fg["genre_id"]]
+    user_fav_genres[fg["user_id"]].append({
+        "_id": genre["id"],
+        "name": genre["name"]
+    })
+
+# Transformation des utilisateurs
+transformed_users = []
+for user_id, user in users_data.items():
+    transformed_users.append({
+        "_id": user["id"],
+        "name": user["name"],
+        "favorite_genres": user_fav_genres.get(user_id, [])
+    })
+
+
+# Chargement des données
+watch_history_data = load_json_files("watch_history.json")
+
+# Transformation des historiques de visionnage
+transformed_watch_history = []
+for record in watch_history_data:
+    movie = movies.get(record["movie_id"])
+    if movie:
+        transformed_watch_history.append({
+            "_id": record["id"],
+            "user_id": record["user_id"],
+            "movie_id": record["movie_id"],
+            "movie_title": movie["title"],
+            "watched_on": record["watched_on"]  # garde en ISO 8601
+        })
+
+# Insertion dans MongoDB
+
+users_collection.insert_many(transformed_users)
+print(f"{len(transformed_users)} utilisateurs insérés dans la collection 'users'")
 movies_collection.insert_many(transformed_movies)
-print(f" {len(transformed_movies)} films insérés dans la collection 'movies'")
+print(f"{len(transformed_movies)} films insérés dans la collection 'movies'")
+watch_history_collection.insert_many(transformed_watch_history)
+print(f"{len(transformed_watch_history)} historiques insérés dans la collection 'watch_history'")
+
